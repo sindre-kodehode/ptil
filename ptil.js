@@ -1,161 +1,127 @@
-#! /usr/bin/env node
 "use strict"
-
 
 /*******************************************************************************
 *  imports                                                                     *
 *******************************************************************************/
-import { readFile } from "node:fs/promises";
-import { JSDOM }    from "jsdom";
-import Excel        from "exceljs";
+import axios     from "axios";
+import exceljs   from "exceljs";
+import { JSDOM } from "jsdom";
 
 
 /*******************************************************************************
-*  ptil.js                                                                     *
+*  ptil.js:                                                                    *
 *******************************************************************************/
-process.argv[2] ? readFromFile( process.argv[2] ) : fetchLatest();
+console.log( "fetching latest" );
+const baseUrl  = "https://www.ptil.no"
+const request  = await axios.get( `${ baseUrl }/tilsyn/tilsynsrapporter/` );
+const document = new JSDOM( request.data ).window.document;
+const result   = document.querySelectorAll( "#list-page-result a.pcard" );
 
-async function readFromFile( filename ) {
-  console.log( "reading from file" );
-  const fd = await readFile( filename );
+console.log( `found ${ result.length } reports` );
+const reports = await Promise.all( [ ...result ].map( result => 
+  axios.get( `https://www.ptil.no${ result.href }` )
+));
 
-  console.log( "parsing report" );
-  const entries = parseReport( fd.toString() );
+const entries = reports.map( (report, index) => {
+  console.log( `parsing report ${ index + 1 }` );
+  parseReport( report.data );
+});
 
-  console.log( "writing to excel" );
-  await writeToExcel( entries );
-}
-
-async function fetchLatest() {
-  const base = "https://www.ptil.no"
-  const url  = base + "/tilsyn/tilsynsrapporter/"
-
-  console.log( "fetching latest" );
-  const latest  = await fetch( url );
-  const content = await latest.text();
-
-  parseList( content );
-}
-
-
-/*******************************************************************************
-*  parseList:                                                                  *
-*******************************************************************************/
-async function parseList( content ) {
-  const dom     = new JSDOM( content );
-  const search  = "#list-page-result a.pcard"; 
-  const results = dom.window.document.querySelectorAll( search );
-
-  console.log( `found ${results.length} reports` );
-  const baseUrl = "https://www.ptil.no";
-
-  console.log( "fetching reports" );
-  const responses = await Promise.all( 
-    [...results].map( result => fetch( baseUrl + result.href
-  )));
-
-  const reports = await Promise.all(
-    responses.map( response => response.text()
-  ));
-
-  console.log( "parsing reports" );
-  const entries = reports.map( report => parseReport( report ) );
-
-  console.log( "writing to excel" );
-  await writeToExcel( entries.flat() );
-}
+// console.log( "writing to excel" );
+// await writeToExcel( entries.flat() );
 
 
 /*******************************************************************************
 *  parseReport:                                                                *
 *******************************************************************************/
 function parseReport( content ) {
-  const dom = new JSDOM( content );
+  const document = new JSDOM( content ).window.document;
 
-  const header = 
-    dom.window.document
-    .querySelector( ".header-articler" )
-    .textContent
-    .trim()
-    .replace("–", "-")
-    .replace( "–", "-" )
-    .split( "-" );
-
-  const date =
-    dom.window.document
-    .querySelector( ".mb-3" )
-    .textContent
-    .split( ":" )[1]
-    .trim();
-
-  const company = header[0].trim();
-  const topic   = header[2] ? header[2].trim() : header[1].trim();
-  const unit    = header[2] ? header[1].trim() : "";
+  const header = document
+  .querySelector( ".header-articler" )
+  .textContent
+  .trim()
+  .replace("–", "-")
+  .replace( "–", "-" )
+  .split( "-" );
+    
+  const company = header[0];
+  const topic   = header[2] ? header[2] : header[1];
+  const unit    = header[2] ? header[1] : "";
+    
+  const date = document
+  .querySelector( ".mb-3" )
+  .textContent
+  .split( ":" )[1];
 
   const entries = [];
 
-  const deviations =
-    dom.window.document
-    .querySelectorAll( "#collapseDeviations .tab-pane" );
+  makeObjects(
+    "Avvik",
+    document.querySelectorAll( '[id^="deviation"].tab-pane' )
+  );
+  
+  makeObjects(
+    "Forbedringspunkt",
+    document.querySelectorAll( '[id^="improvementPoint"].tab-pane' )
+  );
 
-  const improvements =
-    dom.window.document
-    .querySelectorAll( "#collapseImprovementPoints .tab-pane" );
-
-  makeObjects( deviations,   "Avvik"            );
-  makeObjects( improvements, "Forbedringspunkt" );
-
-  function makeObjects( arr, type ) {
+  function makeObjects( type, arr ) {
     arr.forEach( e => {
       let curr = e.firstElementChild;
-      const title = curr.textContent.trim();
-
+      const title = curr.textContent;
+      
+      let description   = "";
+      let justification = "";
+      let legalBasis    = "";
+      
       curr = curr.nextElementSibling;
       curr = curr.nextElementSibling;
 
-      let description = "";
-      while( curr.textContent !== "Begrunnelse" ) {
+      while( curr && curr.textContent !== "Begrunnelse" ) {
         description += curr.textContent;
         curr = curr.nextElementSibling;
       }
 
       curr = curr.nextElementSibling;
 
-      let justification = "";
-      while( curr.textContent !== "Hjemmel" ) {
+      while( curr && curr.textContent !== "Hjemmel" ) {
         justification += curr.textContent;
         curr = curr.nextElementSibling;
       }
+      
+      if ( curr ) {
+        curr = curr.nextElementSibling;
 
-      curr = curr.nextElementSibling;
-
-      let legalBasis = "";
-      [ ...curr.children ].forEach( e =>
-        legalBasis += `${e.querySelector( "p" ).textContent}\n`
-      );
+        [ ...curr.children ].forEach( e =>
+          legalBasis += `${ e.querySelector( "p" ).textContent }\n`
+        );
+      }
 
       entries.push([
         ``,
-        `${date}`,
-        `${company}`,
-        `${unit}`,
-        `${topic}`,
-        `${type}`,
-        `${title}`,
-        `${description.trim()}`,
-        `${justification.trim()}`,
-        `${legalBasis.trim()}`,
+        `${ date.trim()          }`,
+        `${ company.trim()       }`,
+        `${ unit.trim()          }`,
+        `${ topic.trim()         }`,
+        `${ type.trim()          }`,
+        `${ title.trim()         }`,
+        `${ description.trim()   }`,
+        `${ justification.trim() }`,
+        `${ legalBasis.trim()    }`,
       ]);
     });
   }
 
   if ( entries[0] ) {
-    entries[0][0] =
-      dom.window.document
-      .querySelector( "div.d-flex:nth-child(2) > h3:nth-child(1)" )
-      .textContent
-      .replace( / \(PDF\)$/, "" );
+    entries[0][0] = document
+    .querySelector( "div.d-flex:nth-child(2) > h3:nth-child(1)" )
+    .textContent
+    .replace( / \(PDF\)$/, "" );
+    console.log( entries[0][0] );
   }
+  
+  console.log( "entries: " + entries.length + "\n" );
 
   return entries;
 }
@@ -165,7 +131,7 @@ function parseReport( content ) {
 *  writeToExcel:                                                               *
 *******************************************************************************/
 async function writeToExcel( entries ) {
-  const workbook = new Excel.Workbook();
+  const workbook = new exceljs.Workbook();
   await workbook.xlsx.readFile( "ptil.xlsx" );
 
   const worksheet = workbook.worksheets[0];
