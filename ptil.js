@@ -21,7 +21,7 @@ const reports = await Promise.all( [ ...result ].map( result =>
   axios.get( `${ config.baseUrl }${ result.href }` )
 ));
 
-const entries = reports.map( (report, index) => {
+const entries = reports.reverse().map( (report, index) => {
   console.log( `parsing report ${ index + 1 }` );
   return parseReport( report.data );
 });
