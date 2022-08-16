@@ -1,5 +1,4 @@
 "use strict"
-
 /*******************************************************************************
 *  imports                                                                     *
 *******************************************************************************/
@@ -24,11 +23,21 @@ const reports = await Promise.all( [ ...result ].map( result =>
 
 const entries = reports.map( (report, index) => {
   console.log( `parsing report ${ index + 1 }` );
-  parseReport( report.data );
+  return parseReport( report.data );
 });
 
-// console.log( "writing to excel" );
-// await writeToExcel( entries.flat() );
+
+/*******************************************************************************
+*  writeToExcel                                                                *
+*******************************************************************************/
+console.log( "writing to excel" );
+const workbook = new exceljs.Workbook();
+await workbook.xlsx.readFile( "tilsyn.xlsx" );
+
+const worksheet = workbook.worksheets[0];
+worksheet.addRows( entries.flat() );
+
+await workbook.xlsx.writeFile( "test.xlsx" );
 
 
 /*******************************************************************************
@@ -67,7 +76,14 @@ function parseReport( content ) {
   );
 
   function makeObjects( type, arr ) {
-    arr.forEach( e => {
+    arr.forEach( ( e, i ) => {
+      const heading = ( i === 0 ) 
+        ? document
+          .querySelector( "div.d-flex:nth-child(2) > h3:nth-child(1)" )
+          .textContent
+          .replace( / \(PDF\)$/, "" )
+        : "";
+
       let curr = e.firstElementChild;
       const title = curr.textContent;
       
@@ -99,7 +115,7 @@ function parseReport( content ) {
       }
 
       entries.push([
-        ``,
+        `${ heading.trim()       }`,
         `${ date.trim()          }`,
         `${ company.trim()       }`,
         `${ unit.trim()          }`,
@@ -113,29 +129,5 @@ function parseReport( content ) {
     });
   }
 
-  if ( entries[0] ) {
-    entries[0][0] = document
-    .querySelector( "div.d-flex:nth-child(2) > h3:nth-child(1)" )
-    .textContent
-    .replace( / \(PDF\)$/, "" );
-    console.log( entries[0][0] );
-  }
-  
-  console.log( "entries: " + entries.length + "\n" );
-
   return entries;
-}
-
-
-/*******************************************************************************
-*  writeToExcel:                                                               *
-*******************************************************************************/
-async function writeToExcel( entries ) {
-  const workbook = new exceljs.Workbook();
-  await workbook.xlsx.readFile( "ptil.xlsx" );
-
-  const worksheet = workbook.worksheets[0];
-  worksheet.addRows( entries );
-
-  await workbook.xlsx.writeFile( "test.xlsx" );
 }

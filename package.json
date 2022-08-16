@@ -1,11 +1,9 @@
-{
-  "name": "ptil",
-  "version": "1.0.0",
-  "main": "ptil.js",
-  "dependencies": {
-    "axios": "^0.27.2",
-    "exceljs": "^4.3.0",
-    "jsdom": "^19.0.0"
-  },
-  "type": "module"
+{ "name"         : "ptil"
+, "main"         : "ptil.js"
+, "dependencies" : {
+    "axios"      : "^0.27.2"
+,   "exceljs"    : "^4.3.0"
+,   "jsdom"      : "^19.0.0"
+  }
+, "type"         : "module"
 }
