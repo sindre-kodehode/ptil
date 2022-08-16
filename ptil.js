@@ -32,7 +32,7 @@ const entries = reports.map( (report, index) => {
 *******************************************************************************/
 console.log( "writing to excel" );
 const workbook = new exceljs.Workbook();
-await workbook.xlsx.readFile( "tilsyn.xlsx" );
+await workbook.xlsx.readFile( config.tilsynDb );
 
 const worksheet = workbook.worksheets[0];
 worksheet.addRows( entries.flat() );
