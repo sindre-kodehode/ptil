@@ -35,7 +35,7 @@ const workbook = new exceljs.Workbook();
 await workbook.xlsx.readFile( config.tilsynDb );
 
 const worksheet = workbook.worksheets[0];
-worksheet.addRows( entries.flat() );
+worksheet.addRows( entries.flat(), "i" );
 
 await workbook.xlsx.writeFile( "test.xlsx" );
 
