@@ -5,20 +5,20 @@
 import axios     from "axios";
 import exceljs   from "exceljs";
 import { JSDOM } from "jsdom";
+import config    from "./ptil.json" assert { type: "json" };
 
 
 /*******************************************************************************
 *  ptil.js:                                                                    *
 *******************************************************************************/
 console.log( "fetching latest" );
-const baseUrl  = "https://www.ptil.no"
-const request  = await axios.get( `${ baseUrl }/tilsyn/tilsynsrapporter/` );
+const request  = await axios.get( config.tilsynLatest );
 const document = new JSDOM( request.data ).window.document;
 const result   = document.querySelectorAll( "#list-page-result a.pcard" );
 
 console.log( `found ${ result.length } reports` );
 const reports = await Promise.all( [ ...result ].map( result => 
-  axios.get( `https://www.ptil.no${ result.href }` )
+  axios.get( `${ config.baseUrl }${ result.href }` )
 ));
 
 const entries = reports.map( (report, index) => {
@@ -28,7 +28,7 @@ const entries = reports.map( (report, index) => {
 
 
 /*******************************************************************************
-*  writeToExcel                                                                *
+*  writeToExcel:                                                               *
 *******************************************************************************/
 console.log( "writing to excel" );
 const workbook = new exceljs.Workbook();
