@@ -1,8 +1,9 @@
-{ "baseUrl"          : "https://www.ptil.no"
-, "granskningDb"     : "./gransking.xlsx"
-, "granskningLatest" : "https://www.ptil.no/tilsyn/granskingsrapporter/"
-, "lastUpdated"      : ""
-, "logFile"          : "./ptil.log"
-, "tilsynDb"         : "./tilsyn.xlsx"
-, "tilsynLatest"     : "https://www.ptil.no/tilsyn/tilsynsrapporter/"
+{
+  "baseUrl": "https://www.ptil.no",
+  "granskningDb": "./gransking.xlsx",
+  "granskningLatest": "https://www.ptil.no/tilsyn/granskingsrapporter/",
+  "lastUpdated": "2022-08-23T20:56:59.677Z",
+  "logFile": "./ptil.log",
+  "tilsynDb": "./tilsyn.xlsx",
+  "tilsynLatest": "https://www.ptil.no/tilsyn/tilsynsrapporter/"
 }

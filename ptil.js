@@ -2,93 +2,85 @@
 /*******************************************************************************
 *  imports                                                                     *
 *******************************************************************************/
-import { appendFile } from "fs/promises";
-import axios          from "axios";
-import config         from "./ptil.json" assert { type: "json" };
-import exceljs        from "exceljs";
-import { JSDOM }      from "jsdom";
+import * as fs    from "fs/promises";
+import * as jsdom from "jsdom"      ;
+import axios      from "axios"      ;
+import exceljs    from "exceljs"    ;
 
 
 /*******************************************************************************
-*  variables                                                                   *
+*  ptil.js:                                                                    *
 *******************************************************************************/
-let tilsynReq;
-let tilsynDoc;
-let tilsynRes;
-let tilsynReports;
-let tilsynEntries;
-
-
-/*******************************************************************************
-*  tilsyn:                                                                     *
-*******************************************************************************/
-
-// fetch latest from tilsyn site
 try {
-  logToFile( "INFO", "fetching latest tilsyn"  );
-  tilsynReq = await axios.get( config.tilsynLatest );
-  tilsynDoc = new JSDOM( tilsynReq.data ).window.document;
-  tilsynRes = tilsynDoc.querySelectorAll( "#list-page-result a.pcard" );
-}
-catch ( err ) {
-  logToFile( "ERROR", "error while fetching latest tilsyn."  );
-  logToFile( "ERROR", err.message );
-}
+  // read config
+  const configFile = await fs.readFile( "./ptil.json", "utf8" );
+  const config     = JSON.parse( configFile );
+  await log( "INFO  : successfully read config ptil.json" );
 
-// fetch individual reports
-try {
-  logToFile( "INFO", `found ${ tilsynRes.length } tilsyn reports` );
-  tilsynReports = await Promise.all( [ ...tilsynRes ].map( result =>
-    axios.get( `${ config.baseUrl }${ result.href }` )
-  ));
-}
-catch ( err ) {
-  logToFile( "ERROR", "error while fetching tilsyn reports." );
-  logToFile( "ERROR", err.message );
-}
+  // fetch latest from tilsyn site
+  await log( "INFO  : fetching latest tilsyn"  );
+  const tilsynReq = await axios.get( config.tilsynLatest );
+  const tilsynDoc = new jsdom.JSDOM( tilsynReq.data ).window.document;
+  const tilsynRes = tilsynDoc.querySelectorAll( "#list-page-result a.pcard" );
 
-// parse fetched reports
-try {
-  logToFile( "INFO", "parsing reports" );
-  tilsynEntries = tilsynReports.reverse().map( report =>
+  // filter out old reports
+  await log( "INFO  : filtering out old reports" );
+  const tilsynInfo =
+    [ ...tilsynRes ]
+    .map( res => ({
+      href : res.href,
+      date : new Date( res.querySelector( "time" ).dateTime )
+    }))
+    .filter( res => 
+      res.date > new Date( config.lastUpdated )
+  );
+
+  // fetch individual reports
+  await log( `INFO  : found ${ tilsynInfo.length } new tilsyn report(s)` );
+  const tilsynReports = await Promise.all( tilsynInfo.map( info =>
+      axios.get( `${ config.baseUrl }${ info.href }` ) )
+  );
+
+  // parse fetched reports
+  await log( "INFO  : parsing reports" );
+  const tilsynEntries = tilsynReports.reverse().map( report =>
     parseReport( report.data )
   );
-}
-catch ( err ) {
-  logToFile( "ERROR", "error while parsing tilsyn reports." );
-  logToFile( "ERROR", err.message );
-}
 
-// write to excel
-try {
-  logToFile( "INFO", "writing to excel" );
+  // write to excel
+  await log( "INFO  : writing to excel" );
   const workbook = new exceljs.Workbook();
   await workbook.xlsx.readFile( config.tilsynDb );
 
   const worksheet = workbook.worksheets[0];
-  worksheet.addRows( tilsynEntries.flat(), "i" );
+  worksheet.addRows( tilsynEntries.flat() );
 
   await workbook.xlsx.writeFile( config.tilsynDb );
+  await log( "INFO  : successfully written to excel file" );
+
+  // update config
+  const newConfig = { ...config, lastUpdated : new Date().toISOString() };
+  await fs.writeFile( "./ptil.json", JSON.stringify( newConfig, null, 2 ) );
+  await log( "INFO  : successfully updated config" );
+
+  // exit with no errors
+  process.exit( 0 );
 }
 catch ( err ) {
-  logToFile( "ERROR", "error while writing to Excel." );
-  logToFile( "ERROR", err.message );
+  await log( `ERROR : ${ err.message }` );
+  process.exit( 1 );
 }
 
 
 /*******************************************************************************
-*  logToFile:                                                                  *
+*  log:                                                                        *
 *******************************************************************************/
-async function logToFile( type, message ) {
+async function log( message ) {
   try {
-    await appendFile( 
-      config.logFile,
-      `${ new Date().toISOString() } : ` +
-      `${ type.padEnd( 5, " " ) } : `    +
-      `${ message }\n`
-    );
-
-  } catch ( err ) {
+    const data = `${ new Date().toISOString() } : ${ message }\n`;
+    await fs.appendFile( "./ptil.log", data );
+  }
+  catch ( err ) {
     console.error( "Could not write to logfile." );
     console.error( err.message );
   }
@@ -99,7 +91,7 @@ async function logToFile( type, message ) {
 *  parseReport:                                                                *
 *******************************************************************************/
 function parseReport( content ) {
-  const document = new JSDOM( content ).window.document;
+  const document = new jsdom.JSDOM( content ).window.document;
 
   const header = document
   .querySelector( ".header-articler" )
@@ -174,6 +166,7 @@ function parseReport( content ) {
         `${ date.trim()          }`,
         `${ company.trim()       }`,
         `${ unit.trim()          }`,
+        "",
         `${ topic.trim()         }`,
         `${ type.trim()          }`,
         `${ title.trim()         }`,
