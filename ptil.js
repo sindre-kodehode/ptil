@@ -2,42 +2,97 @@
 /*******************************************************************************
 *  imports                                                                     *
 *******************************************************************************/
-import axios     from "axios";
-import exceljs   from "exceljs";
-import { JSDOM } from "jsdom";
-import config    from "./ptil.json" assert { type: "json" };
+import { appendFile } from "fs/promises";
+import axios          from "axios";
+import config         from "./ptil.json" assert { type: "json" };
+import exceljs        from "exceljs";
+import { JSDOM }      from "jsdom";
 
 
 /*******************************************************************************
-*  ptil.js:                                                                    *
+*  variables                                                                   *
 *******************************************************************************/
-console.log( "fetching latest" );
-const request  = await axios.get( config.tilsynLatest );
-const document = new JSDOM( request.data ).window.document;
-const result   = document.querySelectorAll( "#list-page-result a.pcard" );
-
-console.log( `found ${ result.length } reports` );
-const reports = await Promise.all( [ ...result ].map( result => 
-  axios.get( `${ config.baseUrl }${ result.href }` )
-));
-
-const entries = reports.reverse().map( (report, index) => {
-  console.log( `parsing report ${ index + 1 }` );
-  return parseReport( report.data );
-});
+let tilsynReq;
+let tilsynDoc;
+let tilsynRes;
+let tilsynReports;
+let tilsynEntries;
 
 
 /*******************************************************************************
-*  writeToExcel:                                                               *
+*  tilsyn:                                                                     *
 *******************************************************************************/
-console.log( "writing to excel" );
-const workbook = new exceljs.Workbook();
-await workbook.xlsx.readFile( config.tilsynDb );
 
-const worksheet = workbook.worksheets[0];
-worksheet.addRows( entries.flat(), "i" );
+// fetch latest from tilsyn site
+try {
+  logToFile( "INFO", "fetching latest tilsyn"  );
+  tilsynReq = await axios.get( config.tilsynLatest );
+  tilsynDoc = new JSDOM( tilsynReq.data ).window.document;
+  tilsynRes = tilsynDoc.querySelectorAll( "#list-page-result a.pcard" );
+}
+catch ( err ) {
+  logToFile( "ERROR", "error while fetching latest tilsyn."  );
+  logToFile( "ERROR", err.message );
+}
 
-await workbook.xlsx.writeFile( "test.xlsx" );
+// fetch individual reports
+try {
+  logToFile( "INFO", `found ${ tilsynRes.length } tilsyn reports` );
+  tilsynReports = await Promise.all( [ ...tilsynRes ].map( result =>
+    axios.get( `${ config.baseUrl }${ result.href }` )
+  ));
+}
+catch ( err ) {
+  logToFile( "ERROR", "error while fetching tilsyn reports." );
+  logToFile( "ERROR", err.message );
+}
+
+// parse fetched reports
+try {
+  logToFile( "INFO", "parsing reports" );
+  tilsynEntries = tilsynReports.reverse().map( report =>
+    parseReport( report.data )
+  );
+}
+catch ( err ) {
+  logToFile( "ERROR", "error while parsing tilsyn reports." );
+  logToFile( "ERROR", err.message );
+}
+
+// write to excel
+try {
+  logToFile( "INFO", "writing to excel" );
+  const workbook = new exceljs.Workbook();
+  await workbook.xlsx.readFile( config.tilsynDb );
+
+  const worksheet = workbook.worksheets[0];
+  worksheet.addRows( tilsynEntries.flat(), "i" );
+
+  await workbook.xlsx.writeFile( config.tilsynDb );
+}
+catch ( err ) {
+  logToFile( "ERROR", "error while writing to Excel." );
+  logToFile( "ERROR", err.message );
+}
+
+
+/*******************************************************************************
+*  logToFile:                                                                  *
+*******************************************************************************/
+async function logToFile( type, message ) {
+  try {
+    await appendFile( 
+      config.logFile,
+      `${ new Date().toISOString() } : ` +
+      `${ type.padEnd( 5, " " ) } : `    +
+      `${ message }\n`
+    );
+
+  } catch ( err ) {
+    console.error( "Could not write to logfile." );
+    console.error( err.message );
+  }
+}
 
 
 /*******************************************************************************

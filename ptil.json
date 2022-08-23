@@ -1,5 +1,8 @@
 { "baseUrl"          : "https://www.ptil.no"
-, "tilsynLatest"     : "https://www.ptil.no/tilsyn/tilsynsrapporter/"
+, "granskningDb"     : "./gransking.xlsx"
 , "granskningLatest" : "https://www.ptil.no/tilsyn/granskingsrapporter/"
-, "tilsynDb"         : ""
+, "lastUpdated"      : ""
+, "logFile"          : "./ptil.log"
+, "tilsynDb"         : "./tilsyn.xlsx"
+, "tilsynLatest"     : "https://www.ptil.no/tilsyn/tilsynsrapporter/"
 }
