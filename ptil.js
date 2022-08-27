@@ -1,181 +1,184 @@
 "use strict"
+
+import axios     from "axios";
+import fs        from "fs/promises";
+import { JSDOM } from "jsdom";
+
 /*******************************************************************************
-*  imports                                                                     *
+*  Point                                                                       *
 *******************************************************************************/
-import * as fs    from "fs/promises";
-import * as jsdom from "jsdom"      ;
-import axios      from "axios"      ;
-import exceljs    from "exceljs"    ;
+class Point {
+  constructor( type, html ) {
+    this.type          = type;
+    this.html          = html;
+    this.description   = "";
+    this.justification = "";
+    this.legalBasis    = "";
 
+    let curr = this.html.firstElementChild;
+    this.topic = curr.textContent.trim();
+    
+    curr = curr.nextElementSibling;
+    curr = curr.nextElementSibling;
+
+    while( curr && curr.textContent !== "Begrunnelse" ) {
+      this.description += curr.textContent.trim();
+      curr = curr.nextElementSibling;
+    }
+
+    curr = curr.nextElementSibling;
+
+    while( curr && curr.textContent !== "Hjemmel" ) {
+      this.justification += curr.textContent.trim().replace( /"|"/g, "'" );
+      curr = curr.nextElementSibling;
+    }
+    
+    if ( curr ) {
+      curr = curr.nextElementSibling;
+
+      [ ...curr.children ].forEach( e =>
+        this.legalBasis += `${ e.querySelector( "p" ).textContent.trim() }`
+      );
+    }
+  };
+}
 
 /*******************************************************************************
-*  ptil.js:                                                                    *
+*  Report                                                                      *
+*******************************************************************************/
+class Report {
+  constructor( url, date ) {
+    this.url  = url;
+    this.date = date.toLocaleDateString( "en-US" );
+  }
+
+  fetch = async () => {
+    console.log( `INFO  : fetching report: ${ this.url.pathname }` );
+    const res = await axios.get( this.url.toString() );
+    this.doc  = new JSDOM( res.data ).window.document;
+  };
+
+  parse = () => {
+    this.title = this.doc
+    .querySelector( ".header-articler" )
+    .textContent
+    .replace( /–|–/g, "-" )
+    .trim()
+
+    console.log( `INFO  : parsing : ${ this.title }` );
+
+    const h = this.title.split( "-" );
+    [ this.company, this.unit, ...this.category ] = 
+      h.length > 2 ?  h : [ h[ 0 ], "", h[ 1 ] ];
+
+    this.category = this.category.join( "-" ).trim();
+
+    this.points = [
+      ...[ ...this.doc.querySelectorAll( '[id^="deviation"].tab-pane' ) ]
+        .map( html => new Point( "Avvik", html ) ),
+      ...[ ...this.doc.querySelectorAll( '[id^="improvementPoint"].tab-pane' ) ]
+        .map( html => new Point( "Forbedringspunkt", html ) )
+    ]
+
+    this.attachments = 
+      [ ...this.doc.querySelectorAll( '[aria-label="Vedlegg"] a' ) ]
+      .map( a => this.url.origin + a.href )
+      .join( "\n" );
+  };
+
+  print = () => this.points
+    .map( point => [
+      `"${ this.title }"`,
+      `"${ this.date }"`,
+      `"${ this.company }"`,
+      `"${ this.unit }"`,
+      `"${ this.category }"`,
+      `"${ point.type  }"`,
+      `"${ point.topic}"`,
+      `"${ point.description }"`,
+      `"${ point.justification }"`,
+      `"${ point.legalBasis }"`,
+      `"${ this.url.href }"`,
+      `"${ this.attachments }"`,
+    ].join( ";" ) + "\n" ).join( "" );
+}
+
+/*******************************************************************************
+*  ReportList                                                                  *
+*******************************************************************************/
+class ReportList extends Array {
+  constructor( type ) {
+    super()
+    this.type = type;
+    this.url = new URL( `https://www.ptil.no/tilsyn/${ this.type }srapporter/` );
+  };
+
+  fetch = async () => {
+    const res  = await axios.get( this.url.toString() );
+    const doc  = new JSDOM( res.data ).window.document;
+    const data = [ ...doc.querySelectorAll( "#list-page-result a.pcard" ) ];
+
+    this.push( ...data.map( card => new Report(
+      new URL( `${ this.url.origin }${ card.href }` ),
+      new Date( card.querySelector( "time" ).dateTime )
+    )));
+  };
+
+  fetchReports = async () => { for ( const r of this ) await r.fetch(); };
+  parseReports =       () => { for ( const r of this )       r.parse(); };
+
+  writeFile = async () => {
+    const headers = 
+      "Tittel;" +
+      "Publisert;" +
+      "Selskap;" +
+      "Enhet;" +
+      "Kategori;" +
+      "Avvik / Forbedringspunkt;" +
+      "Tema;" +
+      "Beskrivelse;" +
+      "Begrunnelse;" +
+      "Krav;" +
+      "Nettside;" +
+      "Vedlegg\n"
+
+    const data = this.reduce( ( data, report ) => data += report.print(), "" )
+    await fs.writeFile( `./${ this.type }.csv`, headers + data );
+  };
+}
+
+/*******************************************************************************
+*  ptil                                                                        *
 *******************************************************************************/
 try {
-  // read config
-  const configFile = await fs.readFile( "./ptil.json", "utf8" );
-  const config     = JSON.parse( configFile );
-  await log( "INFO  : successfully read config ptil.json" );
+  const tilsynReports = new ReportList( "tilsyn" );
+  const granskReports = new ReportList( "gransking" );
 
-  // fetch latest from tilsyn site
-  await log( "INFO  : fetching latest tilsyn"  );
-  const tilsynReq = await axios.get( config.tilsynLatest );
-  const tilsynDoc = new jsdom.JSDOM( tilsynReq.data ).window.document;
-  const tilsynRes = tilsynDoc.querySelectorAll( "#list-page-result a.pcard" );
+  console.log( "BEGIN : fetching latest reports" );
+  await tilsynReports.fetch();
+  await granskReports.fetch();
 
-  // filter out old reports
-  await log( "INFO  : filtering out old reports" );
-  const tilsynInfo =
-    [ ...tilsynRes ]
-    .map( res => ({
-      href : res.href,
-      date : new Date( res.querySelector( "time" ).dateTime )
-    }))
-    .filter( res => 
-      res.date > new Date( config.lastUpdated )
-  );
+  console.log( "INFO  : fetching tilsyn reports" );
+  await tilsynReports.fetchReports();
 
-  // fetch individual reports
-  await log( `INFO  : found ${ tilsynInfo.length } new tilsyn report(s)` );
-  const tilsynReports = await Promise.all( tilsynInfo.map( info =>
-      axios.get( `${ config.baseUrl }${ info.href }` ) )
-  );
+  console.log( "INFO  : fetching gransking reports" );
+  await granskReports.fetchReports();
 
-  // parse fetched reports
-  await log( "INFO  : parsing reports" );
-  const tilsynEntries = tilsynReports.reverse().map( report =>
-    parseReport( report.data )
-  );
+  console.log( "INFO  : parsing tilsyn reports" );
+  tilsynReports.parseReports();
 
-  // write to excel
-  await log( "INFO  : writing to excel" );
-  const workbook = new exceljs.Workbook();
-  await workbook.xlsx.readFile( config.tilsynDb );
+  console.log( "INFO  : parsing gransking reports" );
+  granskReports.parseReports();
 
-  const worksheet = workbook.worksheets[0];
-  worksheet.addRows( tilsynEntries.flat() );
+  console.log( "INFO  : writing to file" );
+  await tilsynReports.writeFile();
+  await granskReports.writeFile();
 
-  await workbook.xlsx.writeFile( config.tilsynDb );
-  await log( "INFO  : successfully written to excel file" );
-
-  // update config
-  const newConfig = { ...config, lastUpdated : new Date().toISOString() };
-  await fs.writeFile( "./ptil.json", JSON.stringify( newConfig, null, 2 ) );
-  await log( "INFO  : successfully updated config" );
-
-  // exit with no errors
+  console.log( "END   : successfully completed" );
   process.exit( 0 );
 }
 catch ( err ) {
-  await log( `ERROR : ${ err.message }` );
+  console.log( "ERROR : error while running, read ptil.error.log" );
+  await fs.writeFile( "./ptil.error.log", JSON.stringify( err, null, 2 ) );
   process.exit( 1 );
-}
-
-
-/*******************************************************************************
-*  log:                                                                        *
-*******************************************************************************/
-async function log( message ) {
-  try {
-    const data = `${ new Date().toISOString() } : ${ message }\n`;
-    await fs.appendFile( "./ptil.log", data );
-  }
-  catch ( err ) {
-    console.error( "Could not write to logfile." );
-    console.error( err.message );
-  }
-}
-
-
-/*******************************************************************************
-*  parseReport:                                                                *
-*******************************************************************************/
-function parseReport( content ) {
-  const document = new jsdom.JSDOM( content ).window.document;
-
-  const header = document
-  .querySelector( ".header-articler" )
-  .textContent
-  .trim()
-  .replace("–", "-")
-  .replace( "–", "-" )
-  .split( "-" );
-    
-  const company = header[0];
-  const topic   = header[2] ? header[2] : header[1];
-  const unit    = header[2] ? header[1] : "";
-    
-  const date = document
-  .querySelector( ".mb-3" )
-  .textContent
-  .split( ":" )[1];
-
-  const entries = [];
-
-  makeObjects(
-    "Avvik",
-    document.querySelectorAll( '[id^="deviation"].tab-pane' )
-  );
-  
-  makeObjects(
-    "Forbedringspunkt",
-    document.querySelectorAll( '[id^="improvementPoint"].tab-pane' )
-  );
-
-  function makeObjects( type, arr ) {
-    arr.forEach( ( e, i ) => {
-      const heading = ( i === 0 ) 
-        ? document
-          .querySelector( "div.d-flex:nth-child(2) > h3:nth-child(1)" )
-          .textContent
-          .replace( / \(PDF\)$/, "" )
-        : "";
-
-      let curr = e.firstElementChild;
-      const title = curr.textContent;
-      
-      let description   = "";
-      let justification = "";
-      let legalBasis    = "";
-      
-      curr = curr.nextElementSibling;
-      curr = curr.nextElementSibling;
-
-      while( curr && curr.textContent !== "Begrunnelse" ) {
-        description += curr.textContent;
-        curr = curr.nextElementSibling;
-      }
-
-      curr = curr.nextElementSibling;
-
-      while( curr && curr.textContent !== "Hjemmel" ) {
-        justification += curr.textContent;
-        curr = curr.nextElementSibling;
-      }
-      
-      if ( curr ) {
-        curr = curr.nextElementSibling;
-
-        [ ...curr.children ].forEach( e =>
-          legalBasis += `${ e.querySelector( "p" ).textContent }\n`
-        );
-      }
-
-      entries.push([
-        `${ heading.trim()       }`,
-        `${ date.trim()          }`,
-        `${ company.trim()       }`,
-        `${ unit.trim()          }`,
-        "",
-        `${ topic.trim()         }`,
-        `${ type.trim()          }`,
-        `${ title.trim()         }`,
-        `${ description.trim()   }`,
-        `${ justification.trim() }`,
-        `${ legalBasis.trim()    }`,
-      ]);
-    });
-  }
-
-  return entries;
 }
