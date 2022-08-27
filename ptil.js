@@ -128,19 +128,20 @@ class ReportList extends Array {
   parseReports =       () => { for ( const r of this )       r.parse(); };
 
   writeFile = async () => {
-    const headers = 
-      "Tittel;" +
-      "Publisert;" +
-      "Selskap;" +
-      "Enhet;" +
-      "Kategori;" +
-      "Avvik / Forbedringspunkt;" +
-      "Tema;" +
-      "Beskrivelse;" +
-      "Begrunnelse;" +
-      "Krav;" +
-      "Nettside;" +
-      "Vedlegg\n"
+    const headers = [
+      '"Tittel"',
+      '"Publisert"',
+      '"Selskap"',
+      '"Enhet"',
+      '"Kategori"',
+      '"Avvik / Forbedringspunkt"',
+      '"Tema"',
+      '"Beskrivelse"',
+      '"Begrunnelse"',
+      '"Krav"',
+      '"Nettside"',
+      '"Vedlegg"',
+    ].join( "," ) + "\n";
 
     const data = this.reduce( ( data, report ) => data += report.print(), "" )
     await fs.writeFile( `./${ this.type }.csv`, headers + data );
