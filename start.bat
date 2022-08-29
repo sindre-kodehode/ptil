@@ -4,6 +4,7 @@
 where winget
 if %errorlevel% neq 0 (
   echo "winget not installed"
+  start "" "https://apps.microsoft.com/store/detail/9NBLGGH4NNS1"
 )
 
 :: install node with winget
