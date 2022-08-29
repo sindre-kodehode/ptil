@@ -5,6 +5,7 @@ where winget
 if %errorlevel% neq 0 (
   echo "winget not installed"
   start "" "https://apps.microsoft.com/store/detail/9NBLGGH4NNS1"
+  exit
 )
 
 :: install node with winget
@@ -15,9 +16,13 @@ if not exist "C:\Program Files\nodejs\node.exe" (
 
 :: update node modules with npm
 if not exist ".\node_modules\" (
-  echo "Updating Node.js"
-  "C:\Program Files\nodejs\npm.cmd" update    
+  if exist "C:\Program Files\nodejs\npm.cmd" (
+    echo "Updating Node.js"
+    "C:\Program Files\nodejs\npm.cmd" update
+  )
 )
 
 :: run program
-"C:\Program Files\nodejs\node.exe" ".\ptil.js"
+if exist "C:\Program Files\nodejs\node.exe" (
+  "C:\Program Files\nodejs\node.exe" ".\ptil.js"
+)
